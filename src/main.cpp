@@ -1,3 +1,5 @@
+#define NOMPI
+#define ENABLEGPU
 #include "common.h"
 #include "graph.h"
 #include "mega.h"
@@ -12,13 +14,15 @@ vector<tuple<size_t, float>> read_cin() {
     results.push_back(std::make_tuple(i, 0.f));
   return results;
 }
-int PROC_SIZE, PROC_RANK;
+int PROC_SIZE=1, PROC_RANK=1;
 int main(int argc, char* argv[]) {
+#ifndef NOMPI
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &PROC_SIZE);
   MPI_Comm_rank(MPI_COMM_WORLD, &PROC_RANK);
   cerr << "PROCESS " << PROC_RANK << " of " << PROC_SIZE << " initialized!"
        << endl;
+#endif
   int K = 50, R = 64, c, blocksize = 32, NH = 1;
   bool directed = false, sorted = true, oracle = true, harmonic = true;
   float p = 0.01, eps = 0.3, tr = 0.01, trc = 0.02;
@@ -114,6 +118,8 @@ int main(int argc, char* argv[]) {
     }
   } else
     for (auto [s, t] : result) std::cout << s << "\t" << t << std::endl;
+#ifndef NOMPI
   MPI_Finalize();
+#endif
   return 0;
 }

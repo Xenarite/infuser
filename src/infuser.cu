@@ -1,3 +1,5 @@
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/extrema.h>
@@ -69,7 +71,7 @@ void fill_registers_dev(float* M, size_t n, size_t R, size_t J, size_t NH,
 __global__ void simulate_kernel(float* M, graph_t g, int R, int J, int* X) {
   for (size_t i = blockIdx.x; i < g.n; i += (gridDim.x)) {
     for (size_t j = threadIdx.x; j < R * J; j += blockDim.x) {
-      const auto x = 0;//X[j/R];
+      const auto x = X[j/R];
       auto reg = M[i * R * J + j];
       for (size_t pos = g.xadj[i]; pos < g.xadj[i + 1]; pos++) {
         const auto e = g.adj[pos];

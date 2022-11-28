@@ -1,14 +1,16 @@
+#pragma once
 #include "common.h"
 #include "graph.h"
-float maxsum(auto* start, auto* end, auto* mask) {
+template <typename T>
+float maxsum(T* start, T* end, T* mask) {
   float acc = 0;
   for (auto* i = start; i < end; i++) {
     acc += std::max(*i, *(mask++));
   }
   return acc;
 }
-
-float harmonic_mean(auto* x, auto* y, size_t size, size_t R) {
+template <typename T>
+float harmonic_mean(T* x, T* y, size_t size, size_t R) {
   float total = 0;
   for (size_t r = 0; r < R; ++r) {
     float sum = 0;
@@ -21,8 +23,8 @@ float harmonic_mean(auto* x, auto* y, size_t size, size_t R) {
   return total / R;
 }
 
-template <class graph_t>
-void simulate_2d(graph_t& g, const size_t R, const size_t J, auto* __restrict M,
+template <class graph_t, typename T>
+void simulate_2d(graph_t& g, const size_t R, const size_t J, T* __restrict M,
                  int* __restrict rands) {
   const int ITER_LIMIT = 40;
   const float threshold = 0.02;
@@ -61,8 +63,8 @@ void simulate_2d(graph_t& g, const size_t R, const size_t J, auto* __restrict M,
   }
 }
 
-template <typename reg_t>
-std::vector<std::tuple<size_t, float>> infuser_celf(auto& g, int K, size_t R,
+template <typename graph_t, typename reg_t>
+std::vector<std::tuple<size_t, float>> infuser_celf(graph_t& g, int K, size_t R,
                                                 size_t J, int NH = 4,
                                                 bool harmonic = true) {
   int PROC_SIZE, PROC_RANK;
@@ -157,16 +159,22 @@ std::vector<std::tuple<size_t, float>> infuser_celf(auto& g, int K, size_t R,
 }
 
 template <typename reg_t>
-std::vector<std::tuple<size_t, float>> infuser(auto& g, int K, size_t R,
+std::vector<std::tuple<size_t, float>> infuser(graph_t & g, int K, size_t R,
                                                size_t J, int NH = 4,
                                                bool harmonic = true) {
-  int PROC_SIZE, PROC_RANK;
-  MPI_Comm_size(MPI_COMM_WORLD, &PROC_SIZE);
+    int PROC_SIZE=1, PROC_RANK=0;
+#ifndef NOMPI
+    MPI_Comm_size(MPI_COMM_WORLD, &PROC_SIZE);
   MPI_Comm_rank(MPI_COMM_WORLD, &PROC_RANK);
+#endif
 
   auto M = get_aligned<reg_t>(R * J * g.n);
   std::vector<float> MG(g.n, 0);
+#ifndef NOMPI
   std::vector<float> _MG(g.n, 0);
+#else
+#define _MG MG
+#endif
   auto mask = get_aligned<reg_t>(R * J);
   auto X = get_rands(R, PROC_RANK * R);  //////////////////////
   std::sort(X.get(), X.get() + R);
@@ -185,32 +193,27 @@ std::vector<std::tuple<size_t, float>> infuser(auto& g, int K, size_t R,
     M[i * R * J + j * J + bucket] = reg_t(zeros);
   }
 
-  // for (int i=0; i<g.n*R*J; i++){
-  //   std::cout << float(M[i]) << std::endl;
-  // }
-  // exit(1);
-
-  double time = omp_get_wtime();
+  Timer t;
   simulate_2d(g, R, J, M.get(), X.get());
   while (results.size() < K) {
     PARFORV(g, i)
     MG[i] = harmonic ? harmonic_mean(mask.get(), M.get() + (i * R * J), J, R)
                      : maxsum(M.get() + (i * R * J),
                               M.get() + ((i + 1ull) * R * J), mask.get());
-    for (int i=0; i<100; i++){
-      std::cout << float(MG[i]) << std::endl;
-    }
-    exit(1);
+
+#ifndef NOMPI
     MPI_Reduce(MG.data(), _MG.data(), g.n, MPI_FLOAT, MPI_SUM, 0,
                MPI_COMM_WORLD);
-    // if (std::equal(MG.begin(),MG.end(),_MG.begin()))
-    //   std::cout << "MG SAME" << std::endl;
+#endif
+
     size_t u;
     if (PROC_RANK==0) 
       u = std::distance(_MG.begin(), std::max_element(_MG.begin(), _MG.end()));
+#ifndef NOMPI
     MPI_Bcast(&u, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
+#endif
     results.push_back(
-        std::make_tuple<size_t, float>((size_t)u, omp_get_wtime() - time));
+        std::make_tuple(u, t.elapsed()));
     for (size_t i = 0; i < R * J; i++)
       mask[i] = std::max(mask[i], M[u * R * J + i]);
     PARFORV(g, u)
@@ -270,7 +273,7 @@ double run_ic(graph_t& g, const uint32_t S, const size_t R, int32_t* rand_seeds,
   size_t size = g.n * R / (sizeof(uint64_t) * 8);
   double score = 0;
 #pragma omp parallel for reduction(+ : score)
-  for (size_t i = 0; i < size; i++) {
+  for (long long i = 0; i < size; i++) {
     score += __builtin_popcountll(ptr[i]);
   }
 

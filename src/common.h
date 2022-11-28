@@ -23,6 +23,8 @@
 #include <algorithm>
 #if _MSC_VER >= 1910
 #include <execution>
+#define __builtin_clzll __lzcnt64
+#define __builtin_popcountll __popcnt64
 #else
 #include <stdlib.h>
 
@@ -40,9 +42,9 @@ void _aligned_free(void* p) { free(p); }
 const uint32_t HASHMASK = INT32_MAX;
 
 #define PARMAC _Pragma("omp parallel for schedule(dynamic, 8192)")
-#define FORV(g, u) for (size_t u = 0; u < g.n; u++)
+#define FORV(g, u) for (long long u = 0; u < g.n; u++)
 #define PARFORV(g, u) PARMAC FORV(g, u)
-#define FORVR(g, u, r, lim) FORV(g, u) for (size_t r = 0; r < lim; r++)
+#define FORVR(g, u, r, lim) FORV(g, u) for (long long r = 0; r < lim; r++)
 #define PARFORVR(g, u, r, lim) PARMAC FORVR(g, u, r, lim)
 #define FORE(g, u, e) FORV(g, u) for (auto __pos=g.xadj[u],&e=g.adj[__pos]; __pos<g.xadj[u+1]; __pos++, e=g.adj[__pos])
 #define FORL(g, u, e) for (auto [__pos,&e] ={g.xadj[u],g.adj[g.xadj[u]]}; __pos<g.xadj[u+1]; __pos++, e=g.adj[__pos])
