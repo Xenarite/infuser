@@ -14,7 +14,7 @@ vector<tuple<size_t, float>> read_cin() {
     results.push_back(std::make_tuple(i, 0.f));
   return results;
 }
-int PROC_SIZE=1, PROC_RANK=1;
+int PROC_SIZE=1, PROC_RANK=0;
 int main(int argc, char* argv[]) {
 #ifndef NOMPI
   MPI_Init(&argc, &argv);
