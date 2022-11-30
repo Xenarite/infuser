@@ -57,7 +57,6 @@ __global__ void fill_hypers_kernel(float* M, const size_t n, const size_t R,
 			auto bucket = dev_hash64(val) & bucketmask;
 			M[i * R * J + j * J + bucket] = float(zeros);
 		}
-		// i in G, r in R
 	}
 }
 
@@ -68,7 +67,7 @@ void fill_registers_dev(float* M, size_t n, size_t R, size_t J, size_t NH,
 	cuchk(cudaPeekAtLastError());
 }
 
-__global__ void simulate_kernel(float* M, graph_t g, int R, int J, int* X) {
+__global__ void simulate_kernel(float* M, graph_t g, int R, int J, int* X, char* L, char iter) {
 	for (size_t i = blockIdx.x; i < g.n; i += (gridDim.x)) {
 		for (size_t r = threadIdx.x; r < R; r += blockDim.x) {
 			const auto x = X[r];
@@ -76,23 +75,7 @@ __global__ void simulate_kernel(float* M, graph_t g, int R, int J, int* X) {
 				auto reg = M[i * R * J + r * J + j];
 				for (size_t pos = g.xadj[i]; pos < g.xadj[i + 1]; pos++) {
 					const auto e = g.adj[pos];
-					if (((e.hash ^ x) <= e.w))
-						reg = max(reg, M[e.v * R * J + r * J + j]);
-				}
-				M[i * R * J + r * J + j] = reg;
-			}
-		}
-	}
-}
-__global__ void simulate_kernel2(float* M, graph_t g, int R, int J, int* X, char* L, char iter) {
-	for (size_t i = blockIdx.x; i < g.n; i += (gridDim.x)) {
-		for (size_t r = threadIdx.x; r < R; r += blockDim.x) {
-			const auto x = X[r];
-			for (size_t j = 0; j < J; j++) {
-				auto reg = M[i * R * J + r * J + j];
-				for (size_t pos = g.xadj[i]; pos < g.xadj[i + 1]; pos++) {
-					const auto e = g.adj[pos];
-					if (L[e.v]<iter) continue;
+					if (L[e.v] < iter) continue;
 					if (((e.hash ^ x) <= e.w))
 						reg = max(reg, M[e.v * R * J + r * J + j]);
 				}
@@ -104,26 +87,26 @@ __global__ void simulate_kernel2(float* M, graph_t g, int R, int J, int* X, char
 		}
 	}
 }
-//__global__ void simulate_kernel(float* M, graph_t g, int R, int J, int* X) {
-//    for (size_t i = blockIdx.x; i < g.n; i += (gridDim.x)) {
-//        for (size_t j = threadIdx.x; j < R * J; j += blockDim.x) {
-//            const auto x = X[j / J];
-//            auto reg = M[i * R * J + j];
-//            for (size_t pos = g.xadj[i]; pos < g.xadj[i + 1]; pos++) {
-//                const auto e = g.adj[pos];
-//                if (((e.hash ^ x) <= e.w)) reg = max(reg, M[e.v * R * J + j]);
-//            }
-//            M[i * R * J + j] = reg;
-//        }
-//    }
-//}
+
+const int ITER_LIMIT = 40;
+const float CONV_PT = 0.01;
 
 void simulate_dev(float* M, graph_t g, size_t R, size_t J, int* X) {
-	for (int i = 0; i < 40; i++)
-		simulate_kernel << <1024, 32 >> > (M, g, R, J, X);
+	char* L = (char*) get_dev(sizeof(char) * g.n);
+	for (int i = 0; i < ITER_LIMIT; i++) {
+		simulate_kernel << <1024, 32 >> > (M, g, R, J, X, L, i);
+		size_t count = thrust::count(
+			thrust::device_ptr<char>(L), 
+			thrust::device_ptr<char>(L + g.n), 
+			char(i));
+		if (count < CONV_PT * g.n)
+			break;
+	}
+	cuchk(cudaFree(L));
 	cuchk(cudaDeviceSynchronize());
 	cuchk(cudaPeekAtLastError());
 }
+
 template <typename T>
 __inline__ __device__ T reduce_warp(T val) {
 	for (int offset = (warpSize >> 1); offset > 0;
