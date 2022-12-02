@@ -1,8 +1,7 @@
 #pragma once
 #include "common.h"
 #include "graph.h"
-#include "mega.h"
-#include <cuda_runtime.h>
+#include "hyperfuser.h"
 
 void* devcpy(void* host_t, size_t size);
 void* get_dev(size_t size);
@@ -12,6 +11,10 @@ void harmonic_mean_dev(float* MG, float* M, float* mask, size_t n, int R, int J)
 size_t get_max_dev(float* arr, size_t size);
 void max_inplace(float* mask, float* registers, size_t size);
 void hostcpy(void* host_ptr, void* dev_ptr, size_t size);
+
+void maxsum_char_dev(float* estimates, char* hypers, char* mask, size_t N, int R);
+void maxsum_float_dev(float* estimates, float* hypers, float* mask, size_t N, int R);
+
 template<typename T>
 bool checkequal(T* host_ptr, T* dev_ptr, size_t size) {
 	auto host_dev_ptr = get_aligned<T>(size);
@@ -33,6 +36,7 @@ infuser_gpu(graph_t& g, int K, size_t R, size_t J, int NH = 4, bool harmonic = t
 	auto MG = get_aligned<float>(g.n);
 #ifndef NOMPI
 	std::vector<float> _MG(g.n, 0);
+	float* _MG_dev = (float*) get_dev(sizeof(float)*g.n);
 #else
 #define _MG MG
 #define _MG_dev MG_dev
@@ -57,9 +61,12 @@ infuser_gpu(graph_t& g, int K, size_t R, size_t J, int NH = 4, bool harmonic = t
 	simulate_dev(M_dev, _g, R, J, X_dev);
 
 	while (results.size() < K) {
-		harmonic_mean_dev(MG_dev, M_dev, mask_dev, g.n, R, J);
+		if (harmonic)
+			harmonic_mean_dev(MG_dev, M_dev, mask_dev, g.n, R, J);
+		else
+			maxsum_float_dev(MG_dev, M_dev, mask_dev, g.n, R*J);
 #ifndef NOMPI
-		MPI_Reduce(MG.data(), _MG.data(), g.n, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(MG_dev, _MG_dev, g.n, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 #endif
 		size_t u;
 		if (PROC_RANK == 0)

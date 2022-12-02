@@ -1,8 +1,6 @@
-#define NOMPI
-#define ENABLEGPU
 #include "common.h"
 #include "graph.h"
-#include "mega.h"
+#include "hyperfuser.h"
 #ifdef ENABLEGPU
 #include "infuser.cuh"
 #endif
@@ -38,28 +36,17 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 1; i < argc; i++) {
 		string s(argv[i]);
-		if (s == "-K")
-			K = atoi(argv[++i]);
-		else if (s == "-R")
-			R = atoi(argv[++i]);
-		else if (s == "-M")
-			method = string(argv[++i]);
-		else if (s == "-e")
-			eps = atof(argv[++i]);
-		else if (s == "-t")
-			tr = atof(argv[++i]);
-		else if (s == "-s")
-			sorted = atoi(argv[++i]);
-		else if (s == "-h")
-			harmonic = atoi(argv[++i]);
-		else if (s == "-J")
-			J = atoi(argv[++i]);
-		else if (s == "-S")
-			oracle = false;
-		else if (s == "-H")
-			NH = atoi(argv[++i]);
-		else if (s == "-c")
-			trc = atof(argv[++i]);
+		if (s == "-K") K = atoi(argv[++i]);
+		else if (s == "-R") R = atoi(argv[++i]);
+		else if (s == "-M") method = string(argv[++i]);
+		else if (s == "-e") eps = atof(argv[++i]);
+		else if (s == "-t") tr = atof(argv[++i]);
+		else if (s == "-s") sorted = atoi(argv[++i]);
+		else if (s == "-h") harmonic = atoi(argv[++i]);
+		else if (s == "-J") J = atoi(argv[++i]);
+		else if (s == "-S") oracle = false;
+		else if (s == "-H") NH = atoi(argv[++i]);
+		else if (s == "-c") trc = atof(argv[++i]);
 		else if (s == "-o") {
 			out.open(argv[++i]);
 			std::cout.rdbuf(out.rdbuf());
@@ -103,9 +90,9 @@ int main(int argc, char* argv[]) {
 		result = read_cin();
 
 	else if (method == "mega")
-		// result = (NH != 1) ? infuser<float>(g, K, R, J, NH, harmonic)
-		//                    : infuser<char>(g, K, R, J, 1, harmonic);
-		result = infuser<float>(g, K, R, J, NH, harmonic);
+		result = (NH != 1) ? infuser<float>(g, K, R, J, NH, harmonic)
+		                   : infuser<char>(g, K, R, J, 1, harmonic);
+		// result = infuser<float>(g, K, R, J, NH, harmonic);
 #ifdef ENABLEGPU
 	else if (method == "gpu")
 		result = infuser_gpu(g, K, R, J, NH, harmonic);

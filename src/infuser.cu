@@ -62,7 +62,7 @@ __global__ void fill_hypers_kernel(float* M, const size_t n, const size_t R,
 
 void fill_registers_dev(float* M, size_t n, size_t R, size_t J, size_t NH,
 	size_t offset) {
-	fill_hypers_kernel << <n, R >> > (M, n, R, J, NH, offset);
+	fill_hypers_kernel << <n, 32 >> > (M, n, R, J, NH, offset);
 	cuchk(cudaDeviceSynchronize());
 	cuchk(cudaPeekAtLastError());
 }
@@ -135,18 +135,15 @@ __inline__ __device__ T reduce_warp(T val, int size) {
 }
 
 template <typename T, typename T2>
-__global__  //        harmonic_mean_dev(MG, M, mask, g.n, R, J);
-void
+__global__ void
 harmonic_sum_kernel(T2* estimates, T* M, T* mask, size_t N, int R, int J) {
 	const auto RJ = R * J;
-	__shared__ float cache[1];
 	for (size_t u = blockIdx.x; u < N; u += (gridDim.x)) {
 		if (threadIdx.x == 0) {
 			estimates[u] = 0;
 		}
 		float sum = 0;
 		for (size_t pos = threadIdx.x; pos < RJ; pos += blockDim.x) {
-		//for (size_t r = threadIdx.x; r < R; r+= blockDim.x) {
 			const auto r = pos / J;
 			const auto val = powf(2, -max(M[u * RJ + pos], mask[pos]));
 			sum += reduce_warp(val, J);
@@ -155,52 +152,8 @@ harmonic_sum_kernel(T2* estimates, T* M, T* mask, size_t N, int R, int J) {
 			atomicAdd(estimates + u, (1.0f / sum) / R);
 		}
 	}
-
 }
-//template <typename T, typename T2>
-//__global__  //        harmonic_mean_dev(MG, M, mask, g.n, R, J);
-//void
-//harmonic_sum_kernel(T2* estimates, T* M, T* mask, size_t N, int R, int J) {
-//	const auto RJ = R * J;
-//	for (size_t u = blockIdx.x; u < N; u += (gridDim.x)) {
-//		//for (size_t pos = threadIdx.x; pos < RJ; pos += blockDim.x) {
-//		float total = 0;
-//		for (size_t r = threadIdx.x; r < R; r += blockDim.x) {
-//			float sum = 0;
-//			for (size_t i = 0; i < J; i++)
-//				sum += powf(
-//					2, -max(M[u * RJ + r * J + i],
-//						mask[r * J + i]));  // 1.0/(1 << v);  // FIXME lookup
-//			total = 1.0f / sum;
-//		}
-//		estimates[u] = total / R;
-//	}
-//}
-//template <typename T, typename T2>
-//__global__  //        harmonic_mean_dev(MG, M, mask, g.n, R, J);
-//void
-//harmonic_sum_kernel(T2* estimates, T* M, T* mask, size_t N, int R, int J) {
-//    const auto RJ = R * J;
-//    for (size_t i = blockIdx.x; i < N; i += (gridDim.x)) {
-//        float total = 0;
-//        //for (size_t pos = threadIdx.x; pos < RJ; pos += blockDim.x) {
-//        for (size_t r = 0; r < R; r++) {
-//            for (size_t j = 0; j < J; j++) {
-//            }
-//            //size_t j = pos % R;
-//            // size_t r = pos / R;
-//            float sum = powf(2, -max(mask[pos], M[i * RJ + pos]));
-//            sum = reduce_warp(sum, J);
-//            // if (j==0)
-//            //   atomicAdd(estimates+i,1.0f/sum); //FIXME you dont need this;
-//            if (j == 0) {
-//                total += 1.0f / sum;
-//            }
-//        }
-//        total = reduce_block(total);
-//        if (threadIdx.x == 0) estimates[i] = total;
-//    }
-//}
+
 void harmonic_mean_dev(float* MG, float* M, float* mask, size_t n, int R, int J) {
 	harmonic_sum_kernel <<< 1024, 32 >>> (MG, M, mask, n, R, J);
 }
@@ -215,4 +168,25 @@ void max_inplace(float* mask, float* registers, size_t size) {
 		thrust::device_ptr<float>(registers + size),
 		thrust::device_ptr<float>(mask),
 		thrust::device_ptr<float>(mask), thrust::maximum<float>());
+}
+template<typename T, typename T2>
+__global__
+void maxsum_kernel(T2* estimates, T* hypers, T* mask, int R, size_t N) {
+    for (size_t i = blockIdx.x; i < N; i += (gridDim.x)) {
+		estimates[i] = 0;
+		float sum = 0;
+		for(size_t j = threadIdx.x; j< R; j+=blockDim.x){
+			T2 m = max(hypers[i * R + j], mask[j]);
+			sum+=m;
+		}
+		sum = reduce_block(sum);
+		if (threadIdx.x == 0)  estimates[i] = sum;
+	
+    }
+}
+void maxsum_char_dev(float* estimates, char* hypers, char* mask, size_t N, int R){
+	maxsum_kernel<<<1024,32>>>(estimates,hypers,mask,R,N);
+}
+void maxsum_float_dev(float* estimates, float* hypers, float* mask, size_t N, int R){
+	maxsum_kernel<<<1024,32>>>(estimates,hypers,mask,R,N);
 }
