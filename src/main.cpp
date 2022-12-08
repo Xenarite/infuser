@@ -1,9 +1,8 @@
 #include "common.h"
 #include "graph.h"
 #include "hyperfuser.h"
-#ifdef ENABLEGPU
 #include "infuser.cuh"
-#endif
+
 using namespace std;
 
 vector<tuple<size_t, float>> read_cin() {
@@ -67,18 +66,23 @@ int main(int argc, char* argv[]) {
 	std::cerr << "Batch size of the process is " << R << std::endl;
 	std::cerr << "Graph size is " << g.n << "\t" << g.m << std::endl;
 
-	auto X = get_rands(R, R * PROC_RANK);
+	auto rands = get_rands(R * PROC_SIZE);
+	auto X = rands.get() + (R * PROC_RANK);
+
 
 	auto func = [&](wedge_t e) -> bool {
+		// return true;
 		for (int i = 0; i < R; i++)
-			if ((X[i] ^ e.hash) < e.w)
+			if ((e.hash ^ X[i]) <= e.w)
 				return true;
 		return false;
 	};
 	Graph _g = g.filter(func, 1.0f / PROC_SIZE);
 	std::swap(g, _g);
-	delete[] _g.adj;
-	delete[] _g.xadj;
+	if (!oracle && PROC_RANK==0){
+		delete[] _g.adj;
+		delete[] _g.xadj;
+	}
 	std::cerr << "Graph size after pre-sampling is " << g.n << "\t" << g.m << std::endl;
 
 	std::for_each(method.begin(), method.end(),
@@ -88,25 +92,19 @@ int main(int argc, char* argv[]) {
 	std::vector<tuple<size_t, float>> result;
 	if (method == "oracle")
 		result = read_cin();
+	else
+		result = infuser_gpu(g, K, R, J, X, NH, harmonic);
 
-	else if (method == "mega")
-		result = (NH != 1) ? infuser<float>(g, K, R, J, NH, harmonic)
-		                   : infuser<char>(g, K, R, J, 1, harmonic);
-		// result = infuser<float>(g, K, R, J, NH, harmonic);
-#ifdef ENABLEGPU
-	else if (method == "gpu")
-		result = infuser_gpu(g, K, R, J, NH, harmonic);
-#endif
 	if (oracle && PROC_RANK == 0) {
 		R = 64;
 		auto cache_ptr = std::make_unique<char[]>(R * g.n);
 		auto X = get_rands(R);
 		for (auto [s, t] : result) {
-			float score = run_ic(g, s, R, X.get(), cache_ptr.get());
+			float score = run_ic(_g, s, R, X.get(), cache_ptr.get());
 			std::cout << s << "\t" << score << "\t" << t << std::endl;
 		}
 	}
-	else
+	else if (PROC_RANK == 0)
 		for (auto [s, t] : result) std::cout << s << "\t" << t << std::endl;
 #ifndef NOMPI
 	MPI_Finalize();

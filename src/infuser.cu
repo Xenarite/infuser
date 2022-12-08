@@ -24,6 +24,11 @@ void* get_dev(size_t size) {
 	cuchk(cudaMemset(t, 0, size));
 	return t;
 }
+void devsync(){
+	cudaDeviceSynchronize();
+}
+
+
 void* devcpy(void* host_t, size_t size) {
 	void* dev_t;
 	cuchk(cudaMalloc((void**)&dev_t, size));
@@ -43,12 +48,12 @@ __device__ inline uint64_t dev_hash64(uint64_t h) {
 }
 __global__ void fill_hypers_kernel(float* M, const size_t n, const size_t R,
 	const size_t J, const size_t NH,
-	const size_t offset) {
+	const size_t PROC_RANK=0, const size_t PROC_SIZE=1) {
 	// size_t R = blockDim.x;
 	const int bucketmask = J - 1;
 	for (size_t i = blockIdx.x; i < n; i += (gridDim.x)) {
 		for (size_t j = threadIdx.x; j < R; j += blockDim.x) {
-			uint64_t val = ~((i + 1) * R + j + offset);
+			uint64_t val = ~((i + 1) * (R*PROC_SIZE) + (R*PROC_RANK) + j);
 			float zeros = 0;
 			for (int x = 0; x < NH; x++) {
 				val = dev_hash64(val);
@@ -61,8 +66,8 @@ __global__ void fill_hypers_kernel(float* M, const size_t n, const size_t R,
 }
 
 void fill_registers_dev(float* M, size_t n, size_t R, size_t J, size_t NH,
-	size_t offset) {
-	fill_hypers_kernel << <n, 32 >> > (M, n, R, J, NH, offset);
+	size_t PROC_RANK, size_t PROC_SIZE) {
+	fill_hypers_kernel << <n, 32 >> > (M, n, R, J, NH, PROC_RANK, PROC_SIZE);
 	cuchk(cudaDeviceSynchronize());
 	cuchk(cudaPeekAtLastError());
 }
@@ -179,6 +184,7 @@ void maxsum_kernel(T2* estimates, T* hypers, T* mask, int R, size_t N) {
 			T2 m = max(hypers[i * R + j], mask[j]);
 			sum+=m;
 		}
+		__syncthreads();
 		sum = reduce_block(sum);
 		if (threadIdx.x == 0)  estimates[i] = sum;
 	
@@ -189,4 +195,10 @@ void maxsum_char_dev(float* estimates, char* hypers, char* mask, size_t N, int R
 }
 void maxsum_float_dev(float* estimates, float* hypers, float* mask, size_t N, int R){
 	maxsum_kernel<<<1024,32>>>(estimates,hypers,mask,R,N);
+}
+size_t count(float* start, float* end, float item){
+	return thrust::count(
+		thrust::device_ptr<float>(start), 
+		thrust::device_ptr<float>(end), 
+		-1.0f);
 }

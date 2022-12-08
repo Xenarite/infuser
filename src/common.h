@@ -92,7 +92,7 @@ std::unique_ptr<T[], decltype(&_aligned_free)> get_aligned(size_t elems,
 }
 
 std::unique_ptr<int[], decltype(&_aligned_free)> get_rands(size_t size,
-                                                           size_t offset = 0) {
+                                                           size_t offset = 0, bool sorted=true) {
   std::default_random_engine e1(42);
   std::uniform_int_distribution<int> uniform_dist(0, INT_MAX);
   for (size_t i = 0; i < offset; i++)
@@ -100,6 +100,7 @@ std::unique_ptr<int[], decltype(&_aligned_free)> get_rands(size_t size,
 
   auto rand_seeds = get_aligned<int>(size);
   for (size_t i = 0; i < size; i++) rand_seeds[i] = uniform_dist(e1);
+  if (sorted) std::sort(rand_seeds.get(), rand_seeds.get()+size);
   return move(rand_seeds);
 }
 
